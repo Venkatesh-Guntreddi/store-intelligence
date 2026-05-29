@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.db import get_connection, init_db
 from app.models import IngestRequest, IngestResponse
 from app.funnel import calculate_funnel
+from app.heatmap import calculate_heatmap
 
 app = FastAPI(title="Store Intelligence API")
 
@@ -193,4 +194,33 @@ def get_store_funnel(store_id: str):
     return {
         "store_id": store_id,
         "funnel": calculate_funnel(events),
+    }
+
+@app.get("/stores/{store_id}/heatmap")
+def get_store_heatmap(store_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT * FROM events
+        WHERE store_id = ? AND is_staff = 0
+        ORDER BY timestamp ASC
+        """,
+        (store_id,),
+    )
+
+    events = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    visitor_ids = {
+        event["visitor_id"]
+        for event in events
+        if event["event_type"] in ["ENTRY", "REENTRY"]
+    }
+
+    return {
+        "store_id": store_id,
+        "data_confidence": "LOW" if len(visitor_ids) < 20 else "HIGH",
+        "zones": calculate_heatmap(events),
     }
