@@ -6,6 +6,7 @@ from app.db import get_connection, init_db
 from app.models import IngestRequest, IngestResponse
 from app.funnel import calculate_funnel
 from app.heatmap import calculate_heatmap
+from app.anomalies import detect_anomalies
 
 app = FastAPI(title="Store Intelligence API")
 
@@ -224,3 +225,26 @@ def get_store_heatmap(store_id: str):
         "data_confidence": "LOW" if len(visitor_ids) < 20 else "HIGH",
         "zones": calculate_heatmap(events),
     }
+
+@app.get("/stores/{store_id}/anomalies")
+def get_store_anomalies(store_id: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT * FROM events
+        WHERE store_id = ? AND is_staff = 0
+        ORDER BY timestamp ASC
+        """,
+        (store_id,),
+    )
+
+    events = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return {
+        "store_id": store_id,
+        "active_anomalies": detect_anomalies(events),
+    }
+
