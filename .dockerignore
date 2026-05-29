@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+.git/
+store_intelligence.db
+.env
+.vscode/
