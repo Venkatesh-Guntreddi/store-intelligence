@@ -1,12 +1,19 @@
+# Python
 venv/
 __pycache__/
 *.pyc
 
+# Git
 .git/
-.vscode/
 
+# Database
 store_intelligence.db
+
+# Environment
 .env
+
+# VS Code
+.vscode/
 
 # Challenge dataset
 data/
