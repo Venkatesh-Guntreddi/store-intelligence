@@ -40,8 +40,9 @@ def generate_cv_events(video_path: Path, store_id: str, max_frames: int = 150) -
     fps = cap.get(cv2.CAP_PROP_FPS) or 15
     base_time = datetime.now(timezone.utc)
 
-    seen_visitors = set()
-    events = []
+    first_seen = {}
+    last_seen = {}
+    confidence_by_visitor = {}
     frame_idx = 0
 
     while frame_idx < max_frames:
@@ -60,50 +61,96 @@ def generate_cv_events(video_path: Path, store_id: str, max_frames: int = 150) -
 
             for track_id, confidence in zip(track_ids, confidences):
                 visitor_id = tracker.get_visitor_id(track_id)
-
-                if visitor_id in seen_visitors:
-                    continue
-
-                seen_visitors.add(visitor_id)
-
                 seconds = int(frame_idx / fps)
 
-                if config["type"] == "ENTRY":
-                    event_type = "ENTRY"
-                    zone_id = None
-                    dwell_ms = 0
-                    queue_depth = None
-                elif config["type"] == "BILLING":
-                    event_type = "BILLING_QUEUE_JOIN"
-                    zone_id = "BILLING"
-                    dwell_ms = 0
-                    queue_depth = len(seen_visitors)
-                else:
-                    event_type = "ZONE_DWELL"
-                    zone_id = config["zone_id"]
-                    dwell_ms = 30000
-                    queue_depth = None
-
-                events.append(
-                    make_event(
-                        store_id=store_id,
-                        camera_id=camera_id,
-                        visitor_id=visitor_id,
-                        event_type=event_type,
-                        zone_id=zone_id,
-                        dwell_ms=dwell_ms,
-                        is_staff=False,
-                        confidence=round(float(confidence), 4),
-                        queue_depth=queue_depth,
-                        sku_zone=config.get("sku_zone"),
-                        session_seq=1,
-                        timestamp=iso_time(base_time, seconds),
-                    )
+                first_seen.setdefault(visitor_id, seconds)
+                last_seen[visitor_id] = seconds
+                confidence_by_visitor[visitor_id] = max(
+                    confidence_by_visitor.get(visitor_id, 0),
+                    float(confidence),
                 )
 
         frame_idx += 1
 
     cap.release()
+
+    events = []
+    queue_depth = 0
+
+    for seq, visitor_id in enumerate(first_seen.keys(), start=1):
+        start_sec = first_seen[visitor_id]
+        end_sec = last_seen[visitor_id]
+        dwell_ms = max(0, int((end_sec - start_sec) * 1000))
+        confidence = round(confidence_by_visitor.get(visitor_id, 0.75), 4)
+
+        if config["type"] == "ENTRY":
+            events.append(
+                make_event(
+                    store_id=store_id,
+                    camera_id=camera_id,
+                    visitor_id=visitor_id,
+                    event_type="ENTRY",
+                    zone_id=None,
+                    dwell_ms=0,
+                    is_staff=False,
+                    confidence=confidence,
+                    session_seq=1,
+                    timestamp=iso_time(base_time, start_sec),
+                )
+            )
+
+        elif config["type"] == "BILLING":
+            queue_depth += 1
+            events.append(
+                make_event(
+                    store_id=store_id,
+                    camera_id=camera_id,
+                    visitor_id=visitor_id,
+                    event_type="BILLING_QUEUE_JOIN",
+                    zone_id="BILLING",
+                    dwell_ms=0,
+                    is_staff=False,
+                    confidence=confidence,
+                    queue_depth=queue_depth,
+                    session_seq=1,
+                    timestamp=iso_time(base_time, start_sec),
+                )
+            )
+
+        else:
+            events.append(
+                make_event(
+                    store_id=store_id,
+                    camera_id=camera_id,
+                    visitor_id=visitor_id,
+                    event_type="ZONE_ENTER",
+                    zone_id=config["zone_id"],
+                    dwell_ms=0,
+                    is_staff=False,
+                    confidence=confidence,
+                    sku_zone=config.get("sku_zone"),
+                    session_seq=1,
+                    timestamp=iso_time(base_time, start_sec),
+                )
+            )
+
+            if dwell_ms >= 1000:
+                events.append(
+                    make_event(
+                        store_id=store_id,
+                        camera_id=camera_id,
+                        visitor_id=visitor_id,
+                        event_type="ZONE_DWELL",
+                        zone_id=config["zone_id"],
+                        dwell_ms=dwell_ms,
+                        is_staff=False,
+                        confidence=confidence,
+                        sku_zone=config.get("sku_zone"),
+                        session_seq=2,
+                        timestamp=iso_time(base_time, end_sec),
+                    )
+                )
+
     return events
 
 
