@@ -4,3 +4,6 @@ pydantic
 pytest
 httpx
 requests
+ultralytics
+opencv-python
+lap
