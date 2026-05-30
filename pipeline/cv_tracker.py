@@ -2,7 +2,7 @@ from pathlib import Path
 from pipeline.tracker import VisitorTracker
 
 import cv2
-from ultralytics import YOLO
+from ultralytics import YOLO # type: ignore
 
 
 model = YOLO("yolov8n.pt")
