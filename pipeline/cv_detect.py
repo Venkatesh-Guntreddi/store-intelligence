@@ -2,7 +2,7 @@ from pathlib import Path
 
 import cv2
 
-from ultralytics import YOLO
+from ultralytics import YOLO # type: ignore
 
 
 def inspect_video(video_path: str):
