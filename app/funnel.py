@@ -1,38 +1,41 @@
 def calculate_funnel(events: list[dict]) -> dict:
-    sessions = {}
+    entry_visitors = set()
+    zone_visitors = set()
+    billing_visitors = set()
+    purchase_visitors = set()
 
     for event in events:
+        if event.get("is_staff") in [1, True]:
+            continue
+
         visitor_id = event["visitor_id"]
         event_type = event["event_type"]
 
-        if event.get("is_staff") == 1:
-            continue
-
-        if visitor_id not in sessions:
-            sessions[visitor_id] = {
-                "entry": False,
-                "zone_visit": False,
-                "billing_queue": False,
-                "purchase": False,
-            }
-
         if event_type in ["ENTRY", "REENTRY"]:
-            sessions[visitor_id]["entry"] = True
+            entry_visitors.add(visitor_id)
 
         if event_type in ["ZONE_ENTER", "ZONE_DWELL"]:
-            sessions[visitor_id]["zone_visit"] = True
+            zone_visitors.add(visitor_id)
 
         if event_type == "BILLING_QUEUE_JOIN":
-            sessions[visitor_id]["billing_queue"] = True
+            billing_visitors.add(visitor_id)
 
-        # Temporary: later we will connect POS transactions here
         if event_type == "PURCHASE":
-            sessions[visitor_id]["purchase"] = True
+            purchase_visitors.add(visitor_id)
 
-    total_entry = sum(1 for s in sessions.values() if s["entry"])
-    total_zone_visit = sum(1 for s in sessions.values() if s["zone_visit"])
-    total_billing = sum(1 for s in sessions.values() if s["billing_queue"])
-    total_purchase = sum(1 for s in sessions.values() if s["purchase"])
+    def bounded_stage(stage: set, previous: set) -> set:
+        if not previous:
+            return stage
+        return stage.intersection(previous)
+
+    zone_visitors = bounded_stage(zone_visitors, entry_visitors)
+    billing_visitors = bounded_stage(billing_visitors, zone_visitors)
+    purchase_visitors = bounded_stage(purchase_visitors, billing_visitors)
+
+    entry_count = len(entry_visitors)
+    zone_count = len(zone_visitors)
+    billing_count = len(billing_visitors)
+    purchase_count = len(purchase_visitors)
 
     def dropoff(previous: int, current: int) -> float:
         if previous == 0:
@@ -40,13 +43,13 @@ def calculate_funnel(events: list[dict]) -> dict:
         return round(((previous - current) / previous) * 100, 2)
 
     return {
-        "entry": total_entry,
-        "zone_visit": total_zone_visit,
-        "billing_queue": total_billing,
-        "purchase": total_purchase,
+        "entry": entry_count,
+        "zone_visit": zone_count,
+        "billing_queue": billing_count,
+        "purchase": purchase_count,
         "dropoff_percent": {
-            "entry_to_zone_visit": dropoff(total_entry, total_zone_visit),
-            "zone_visit_to_billing": dropoff(total_zone_visit, total_billing),
-            "billing_to_purchase": dropoff(total_billing, total_purchase),
+            "entry_to_zone_visit": dropoff(entry_count, zone_count),
+            "zone_visit_to_billing": dropoff(zone_count, billing_count),
+            "billing_to_purchase": dropoff(billing_count, purchase_count),
         },
     }
